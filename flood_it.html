@@ -1,0 +1,281 @@
+<html>
+<head>
+<meta name="viewport" content="width=320; initial-scale=1.0; user-scalable=no"/>
+<script type="text/javascript">
+var FI = {};
+
+FI.formatSeconds = function(s) {
+  var minutes = Math.floor(s / 60);
+  var seconds = s - (minutes * 60)
+  return minutes + ":" + ((seconds < 10) ? '0' + seconds : seconds);
+};
+
+FI.timer = function() {
+  var d = new Date();
+  var diff = d - FI.startTime;
+  document.getElementById('time').value = FI.formatSeconds(Math.round(diff / 1000));
+  FI.timeout = setTimeout("FI.timer()", 1000);
+};
+
+FI.timeGame = function () {
+  FI.startTime = new Date();
+  FI.timer();
+};
+
+FI.COLORS = ['dd2222', '44aa22', '2222dd', 'dd6622', 'dddd22', 'aa44bb'];
+
+FI.createGame = function(size, seed) {
+  var o = {};
+  // These variables should not change after construction
+  o.size = size;
+  o.seed = seed;
+  o.numSquares = size * size;
+  o.originalColors = [];
+  // These variables get mutated during play
+  o.squares = [];
+  o.changeHistory = [];
+  o.undoHistory = [];
+  o.getLastChange = function() {
+   if (this.changeHistory.length > 0) {
+      return this.changeHistory[this.changeHistory.length - 1];
+    }
+  };
+  o.reset = function() {
+    for (var i = 0; i < this.squares.length; i++) {
+      this.setSquareColor(i, this.originalColors[i]);
+    }
+    this.changeHistory = [];
+    this.undoHistory = [];
+    this.updateMoveDisplay();
+    FI.timeGame();
+  };
+  o.getNeighbors = function(i) {
+    var x = i % this.size;
+    var y = i / this.size;
+    var neighbors = [];
+    if (i > this.size) {  // There's a square above this one
+      neighbors.push(i - this.size);
+    }
+    if (x !== this.size - 1) {  // There's a square to the right of this one
+      neighbors.push(i + 1);
+    }
+    if (y !== this.size - 1) {  // There's a square below this one
+      neighbors.push(i + this.size);
+    }
+    if (x !== 0) {  // There's a square to the left of this one
+      neighbors.push(i - 1);
+    }
+    return neighbors
+  };
+  o.isCompletelyFlooded = function() {
+    var lastChange = this.getLastChange();
+    // If there's no change history, the squares are highly unlikely to be flooded
+    if (lastChange) {
+      return lastChange.length === this.numSquares;
+    }
+  };
+  o.generate = function() {
+    var colors = [3,4,2,1,0,0,5,2,0,2,1,1,3,1,1,2,5,0,4,0,4,2,4,2,3,0,4,1,0,1,2,3,5,5,5,0,0,4,3,0,0,5,2,4,0,3,1,0,3,5,0,2,1,5,5,5,5,4,1,0,5,4,4,5,3,3,0,4,2,3,4,3,3,0,2,4,4,3,4,2,2,5,4,4,5,4,4,4,2,5,5,1,3,3,1,1,0,1,5,3,5,4,0,2,5,2,1,3,0,0,0,2,5,5,1,5,3,5,3,5,5,3,1,3,0,2,4,1,4,4,4,3,2,5,0,1,2,1,5,2,1,5,5,1,5,1,1,2,0,5,2,5,2,4,3,2,1,2,3,5,0,2,3,3,1,3,5,4,5,4,0,1,4,0,3,4,1,4,0,2,3,3,2,5,2,5,1,3,1,5,3,1,1,0,5,3];
+    //for (var i = 0; i < this.numSquares; i++) {
+    //  colors.push(Math.floor(Math.random() * FI.COLORS.length));
+    //}
+    for (var i = 0; i < colors.length; i++) {
+      this.squares.push(colors[i]);
+      this.originalColors.push(colors[i]);
+      this.applyColor(i, colors[i]);
+    }
+  };
+  o.applyColor = function(i, color) {
+    var td = document.getElementById('square' + i);
+    td.style.backgroundColor = FI.COLORS[color];
+  };
+  o.setSquareColor = function(i, color) {
+    this.squares[i] = color;
+    this.applyColor(i, color);
+  };
+  o.setSquareColorAndProcessed = function(i, color) {
+    // To mark a square as processed so we don't recurse on it mark its
+    // color value negative in a way that we can undo it later
+    this.setSquareColor(i, color);
+    this.squares[i] -= FI.COLORS.length;
+  };
+  o.isSquareProcessed = function(i) {
+    return this.squares[i] < 0;
+  };
+  o.doneProcessing = function() {
+    for (var i = 0; i < this.squares.length; i++) {
+      if (this.squares[i] < 0) {
+        this.squares[i] += FI.COLORS.length;
+      }
+    }
+  };
+  o.undo = function() {
+    if (this.changeHistory.length > 0) {
+      // store the current flood color
+      this.undoHistory.push(this.squares[0]);
+      var history = this.changeHistory.pop();
+      for (var i = 0; i < history.length; i++) {
+        this.setSquareColor(history[i][0], history[i][1]);
+      }
+      this.updateMoveDisplay();
+    }
+  };
+  o.redo = function() {
+    if (this.undoHistory.length > 0) {
+      this.changeColor(this.undoHistory.pop());
+    }
+  };
+  o.updateMoveDisplay = function() {
+    document.getElementById('moves').value = this.changeHistory.length;
+  };
+  o.changeColor = function(color) {
+    if (color === this.squares[0]) {
+      // Color isn't changing, don't do anything.
+      return;
+    }
+    var history = [];
+    this.changeColor_(0, this.squares[0], color, history);
+    this.changeHistory.push(history);
+    this.doneProcessing();
+    this.updateMoveDisplay();
+    if (this.changeHistory.length > 1) {
+      var l = this.changeHistory.length;
+      if (this.changeHistory[l-1].length === this.changeHistory[l-2].length) {
+        // nothing changed, undo.
+        this.undo();
+      }
+    }
+    if (this.isCompletelyFlooded()) {
+      clearTimeout(FI.timeout);
+    }
+  };
+  o.changeColor_ = function(i, previousColor, color, history) {
+    history.push([i, previousColor]);
+    this.setSquareColorAndProcessed(i, color);
+    var neighbors = this.getNeighbors(i);
+    for (var i = 0; i < neighbors.length; i++) {
+      var neighbor = neighbors[i];
+      if (this.isSquareProcessed(neighbor)) {
+        continue;
+      }
+      squareColor = this.squares[neighbor];
+      if (squareColor === previousColor || squareColor === color) {
+        this.changeColor_(neighbor, squareColor, color, history);
+      }
+    }
+  };
+  return o;
+};
+
+FI.init = function() {
+  FI.setupGame();
+  FI.createControls();
+  FI.timeGame();
+};
+
+FI.setupGame = function() {
+  var game = FI.createGame(14, 51878);
+  // Create squares
+  var squareSize = '22px';
+  var table = document.createElement('table');
+  table.setAttribute('border', 0);
+  table.setAttribute('cellspacing', 0);
+  table.setAttribute('cellpadding', 0);
+  var tbody = document.createElement('tbody');
+  var tbodyTr = document.createElement('tr');
+  var y = 0;
+  for (var i = 0; i < game.numSquares; i++) {
+    if (i && i % game.size == 0) {
+      tbody.appendChild(tbodyTr);
+      tbodyTr = document.createElement('tr');
+    }
+    var td = document.createElement('td');
+    td.style.width = squareSize;
+    td.style.height = squareSize;
+    td.setAttribute('id', 'square' + i);
+    tbodyTr.appendChild(td);
+  }
+  tbody.appendChild(tbodyTr);
+  table.appendChild(tbody);
+  document.getElementById('board').appendChild(table);
+  game.generate();
+  FI.currentGame = game;
+};
+
+FI.createControls = function() {
+  var form = document.createElement('form');
+  var movesLabel = document.createElement('label');
+  movesLabel.appendChild(document.createTextNode('moves '));
+  movesLabel.setAttribute('for', 'moves');
+  var timeLabel = document.createElement('label');
+  timeLabel.appendChild(document.createTextNode(' time'));
+  timeLabel.setAttribute('for', 'time');
+  var moves = document.createElement('input');
+  moves.setAttribute('type', 'text');
+  moves.setAttribute('id', 'moves');
+  moves.setAttribute('disabled', 'false');
+  moves.setAttribute('size', '1');
+  moves.style.marginRight = '5px';
+  var time = document.createElement('input');
+  time.setAttribute('type', 'text');
+  time.setAttribute('id', 'time');
+  time.setAttribute('disabled', 'false');
+  time.setAttribute('size', '3');
+  var buttonSize = '43px';
+  var buttonMargin = '4px';
+  var button;
+
+  for (var i = 0; i < FI.COLORS.length; i++) {
+    button = document.createElement('input');
+    button.setAttribute('type', 'button');
+    button.style.backgroundColor = FI.COLORS[i];
+    button.onclick = function(color) {
+      return function() {
+        FI.currentGame.changeColor(color);
+      };
+    }(i);
+    button.style.width = buttonSize;
+    button.style.height = buttonSize;
+    button.style.margin = buttonMargin;
+    button.style.borderRadius = '15px';
+    form.appendChild(button);
+  }
+  form.appendChild(document.createElement('br'));
+  form.appendChild(movesLabel);
+  form.appendChild(moves);
+  form.appendChild(time);
+  form.appendChild(timeLabel);
+  form.appendChild(document.createElement('br'));
+  button = document.createElement('input');
+  button.setAttribute('type', 'button');
+  button.onclick = function() {
+    FI.currentGame.undo();
+  };
+  button.setAttribute('value', 'Undo');
+  form.appendChild(button);
+  button = document.createElement('input');
+  button.setAttribute('type', 'button');
+  button.onclick = function() {
+    FI.currentGame.redo();
+  };
+  button.setAttribute('value', 'Redo');
+  form.appendChild(button);
+  button = document.createElement('input');
+  button.setAttribute('type', 'button');
+  button.onclick = function() {
+    FI.currentGame.reset();
+  };
+  button.setAttribute('value', 'Reset');
+  form.appendChild(button);
+  form.style.margin = '0px';
+  form.style.padding = '0px';
+  document.getElementById('controls').appendChild(form);
+};
+</script>
+</head>
+<body style="background-color: #333333; margin: 10px 0px 0px 0px; color: #cccccc; font-family: helvetica, verdana, arial;" onload="FI.init()">
+<div id="board" align="center"></div>
+<div id="controls" align="center"></div>
+<div id="challenge" align="center">1296663557</div>
+</body>
+</html>

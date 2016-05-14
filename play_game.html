@@ -1,0 +1,430 @@
+<html>
+<head>
+<meta name="viewport" content="width=320; initial-scale=1.0; user-scalable=no"/>
+<script type="text/javascript">
+var FI = {};
+
+FI.COLORS = ['dd2222', '44aa22', '2222dd', 'dd6622', 'dddd22', 'aa44bb'];
+
+FI.NEIGHBOR_MAPPING = [];
+
+FI.newGame = function(seed) {
+  document.getElementById('popUp').innerHTML = '<br/>Fetching new game...<br/><br/>';
+  document.getElementById('popUp').style.visibility = 'visible';
+  location.href = '/PlayGame?ps=' + seed;
+};
+
+FI.generateNeighborMapping = function(game) {
+  for (var i = 0; i < game.numSquares; i++) {
+    var x = i % game.size;
+    var y = i / game.size;
+    var neighbors = [];
+    // There's a square above this one
+    if (i > game.size) neighbors.push(i - game.size);
+    // There's a square to the right of this one
+    if (x !== game.size - 1) neighbors.push(i + 1);
+    // There's a square below this one
+    if (y !== game.size - 1) neighbors.push(i + game.size);
+    // There's a square to the left of this one
+    if (x !== 0) neighbors.push(i - 1);
+    FI.NEIGHBOR_MAPPING.push(neighbors);
+  }
+};
+
+FI.formatSeconds = function(s) {
+  var minutes = Math.floor(s / 60);
+  var seconds = s - (minutes * 60)
+  return minutes + ":" + ((seconds < 10) ? '0' + seconds : seconds);
+};
+
+FI.timer = function() {
+  var d = new Date();
+  var diff = d - FI.startTime;
+  document.getElementById('elapsedTime').innerHTML = FI.formatSeconds(Math.round(diff / 1000));
+  FI.timeout = setTimeout("FI.timer()", 1000);
+};
+
+FI.timeGame = function() {
+  FI.startTime = new Date();
+  FI.timer();
+};
+
+FI.messageUser = function(numMoves) {
+  var previousBest = Math.min(parseInt({{min_moves_to_complete}}), FI.currentGame.minMovesToComplete);
+  var msg = "<p>This board can be filled in " + previousBest + " moves.</p>";
+  if (numMoves < previousBest) {
+    msg = "<p>You beat the record of " + previousBest + " moves!</p>";
+  } else if (numMoves === previousBest) {
+    msg = "<p>You matched the record of " + previousBest + " moves!</p>";
+  }
+  msg += "<p>Would you like to try again?</p>";
+  document.getElementById('msg').innerHTML = msg;
+  document.getElementById('popUp').style.visibility = 'visible';
+};
+
+FI.updateMoveDisplay = function(numMoves) {
+  document.getElementById('numMoves').innerHTML = numMoves;
+};
+
+FI.Square = function(position, color) {
+  this.position = position;
+  this.color = color;
+};
+
+FI.Change = function(color, squares) {
+  this.color = color;
+  this.squares = squares;
+};
+
+FI.Game = function(originalColors) {
+  this.originalColors_ = originalColors;
+  this.numMovesToComplete_ = {}
+  this.numSquares = originalColors.length;
+  this.size = Math.sqrt(this.numSquares);
+  this.minMovesToComplete = this.numSquares;
+};
+
+FI.Game.prototype.getMoves = function() {
+  var moves = [];
+  for (var i = 0; i < this.changeHistory.length; i++) {
+    moves.push(this.changeHistory[i].color);
+  }
+  return moves;
+};
+
+FI.Game.prototype.reset = function() {
+  this.squares = this.originalColors_.slice(0);  // Make a copy.
+  this.changeHistory = [];
+  this.undoHistory = [];
+  for (var i = 0; i < this.originalColors_.length; i++) {
+    this.applyColor(i, this.originalColors_[i]);
+  }
+  FI.updateMoveDisplay(this.changeHistory.length);
+};
+
+FI.Game.prototype.getLastChange = function() {
+  var chl = this.changeHistory.length;
+  if (chl > 0) {
+    return this.changeHistory[chl - 1];
+  }
+};
+
+FI.Game.prototype.isCompletelyFlooded = function() {
+  var lastChange = this.getLastChange();
+  // If there's no change history, the squares are highly unlikely to be flooded
+  if (lastChange) {
+    return lastChange.squares.length === this.numSquares;
+  }
+};
+
+FI.Game.prototype.applyColor = function(i, color) {
+  var td = document.getElementById('square' + i);
+  td.setAttribute('class', 'gradient' + color);
+  td.style.backgroundColor = FI.COLORS[color];
+};
+
+FI.Game.prototype.doneProcessing = function() {
+  for (var i = 0; i < this.squares.length; i++) {
+    if (this.squares[i] < 0) {
+      this.squares[i] += FI.COLORS.length;
+    }
+  }
+  // If the game is over, message the user and record completion.
+  if (this.isCompletelyFlooded()) {
+    var numMoves = this.changeHistory.length;
+    clearTimeout(FI.timeout);
+    FI.messageUser(numMoves);
+    if (numMoves < this.minMovesToComplete) {
+      this.minMovesToComplete = numMoves;
+    }
+    if (!this.numMovesToComplete_[numMoves]) {
+      this.numMovesToComplete_[numMoves] = 1;
+      var moves = [];
+      for (var i = 0; i < this.changeHistory.length; i++) {
+        moves.push(this.changeHistory[i].color);
+      }
+      document.getElementById('updateCompletions').src = '/UpdateCompletions?s={{seed}}&m=' + moves;
+    }
+  }
+};
+
+FI.Game.prototype.undo = function() {
+  document.getElementById('popUp').style.visibility = 'hidden';
+  if (this.changeHistory.length > 0) {
+    // store the current flood color
+    this.undoHistory.push(this.squares[0]);
+    if (this.isCompletelyFlooded()) {
+      FI.timer();
+    }
+    this.applyChange(this.changeHistory.pop());
+    FI.updateMoveDisplay(this.changeHistory.length);
+  }
+};
+
+FI.Game.prototype.redo = function() {
+  document.getElementById('popUp').style.visibility = 'hidden';
+  if (this.undoHistory.length > 0) {
+    this.changeColor(this.undoHistory.pop(), true);
+  }
+};
+
+FI.Game.prototype.applyChange = function(history) {
+  for (var i = 0; i < history.squares.length; i++) {
+    var position = history.squares[i].position;
+    var color = history.squares[i].color;
+    this.squares[position] = color;
+    this.applyColor(position, color);
+  }
+};
+
+FI.Game.prototype.changeColor = function(color, preserveUndoHistory) {
+  if (color === this.squares[0]) {  // Color isn't changing, don't do anything.
+    return;
+  }
+  var history = [];
+  this.changeColor_(0, this.squares[0], color, history);
+  var change = new FI.Change(color, history);
+  var chl = this.changeHistory.length;
+  // If no progress would be made, don't change the color or count the move.
+  if (history.length == 1 ||
+      (chl && this.changeHistory[chl-1].squares.length === change.squares.length)) {
+    this.doneProcessing();
+    // Revert the underlying change
+    this.applyChange(change);
+    return;
+  }
+  for (var i = 0; i < change.squares.length; i++) {
+    this.applyColor(change.squares[i].position, color);
+  }
+  this.changeHistory.push(change);
+  FI.updateMoveDisplay(this.changeHistory.length);
+  if (!preserveUndoHistory) {
+    this.undoHistory = [];
+  }
+  this.doneProcessing();
+};
+
+FI.Game.prototype.changeColor_ = function(i, previousColor, color, history) {
+  history.push(new FI.Square(i, previousColor));
+  this.squares[i] = color;
+  this.squares[i] -= FI.COLORS.length;  // Mark as processed, will re-convert later.
+  var neighbors = FI.NEIGHBOR_MAPPING[i];
+  for (var i = 0; i < neighbors.length; i++) {
+    var neighbor = neighbors[i];
+    if (this.squares[neighbor] < 0) {
+      continue;
+    }
+    squareColor = this.squares[neighbor];
+    if (squareColor === previousColor || squareColor === color) {
+      this.changeColor_(neighbor, squareColor, color, history);
+    }
+  }
+};
+
+FI.init = function() {
+  FI.setupGame();
+  FI.generateNeighborMapping(FI.currentGame);
+  FI.createControls();
+  FI.reset();
+  FI.createCompletionHistogram();
+};
+
+FI.initFB = function() {
+  FB.init({appId:'183568745014202', cookie:true, status:true, xfbml:true});
+};
+
+FI.postChallengeToFB = function() {
+  // PlayGame takes the "previous seed"
+  var seed = parseInt({{seed}});
+  var msg = 'I finished this game in ' + FI.currentGame.minMovesToComplete +
+      ' moves, beat that!';
+  var desc = 'Fill the board with one color in the fewest moves. Start from ' +
+      'the top left corner and progress by selecting one of the available ' + 
+      'colors.';
+  FB.ui({ method: 'feed',
+          message: msg,
+          link: 'http://color-flow.appspot.com/?ps=' + (seed - 1),
+          picture: 'http://color-flow.appspot.com/images/color-flow.png',
+          name: 'C O L O R F L O W',
+          description: desc
+        });
+};
+
+FI.reset = function() {
+  document.getElementById('popUp').style.visibility = 'hidden';
+  FI.currentGame.reset();
+  FI.timeGame();
+};
+
+FI.setupGame = function() {
+  var game = new FI.Game({{squares}});
+  // Create squares
+  var squareSize = '22px';
+  var table = document.createElement('table');
+  table.setAttribute('border', 0);
+  table.setAttribute('cellspacing', 0);
+  table.setAttribute('cellpadding', 0);
+  var tbody = document.createElement('tbody');
+  var tbodyTr = document.createElement('tr');
+  var y = 0;
+  for (var i = 0; i < game.numSquares; i++) {
+    if (i && i % game.size == 0) {
+      tbody.appendChild(tbodyTr);
+      tbodyTr = document.createElement('tr');
+    }
+    var td = document.createElement('td');
+    td.style.width = squareSize;
+    td.style.height = squareSize;
+    td.setAttribute('id', 'square' + i);
+    tbodyTr.appendChild(td);
+  }
+  tbody.appendChild(tbodyTr);
+  table.appendChild(tbody);
+  document.getElementById('board').appendChild(table);
+  FI.currentGame = game;
+};
+
+FI.createControls = function() {
+  var form = document.createElement('form');
+  var buttonSize = '43px';
+  var buttonMargin = '4px';
+  var button;
+  for (var i = 0; i < FI.COLORS.length; i++) {
+    button = document.createElement('input');
+    button.setAttribute('type', 'button');
+    button.setAttribute('class', 'colorButton gradient' + i);
+    button.style.backgroundColor = FI.COLORS[i];
+    button.onclick = function(color) {
+      return function() {
+        FI.currentGame.changeColor(color, false);
+      };
+    }(i);
+    form.appendChild(button);
+  }
+  document.getElementById('controls').appendChild(form);
+};
+FI.createCompletionHistogram = function() {
+  var completionData = '{{completions}}'.split(',');
+  var chd = '&chd=t:';
+  var chxl = '&chxl=0:';
+  var maxValue = 0;
+  for (var i = 0; i < completionData.length; i++) {
+    var data = completionData[i].split(':');
+    if (i !== 0) {
+      chd += ',';
+    }
+    chd += data[1];
+    chxl += '|' + data[0];
+    maxValue = Math.max(maxValue, data[1]);
+  }
+  maxValue += 1;
+  chxl += '|2:|Moves+To+Complete';
+  var chdsr = '&chds=0,' + maxValue + '&chxr=1,0,' + maxValue;
+  var chart = 'https://chart.googleapis.com/chart?chxt=x,y,x&cht=bvs&chs=308x125&chbh=a';
+  chart += chxl + '&chxp=2,50';
+  chart += chd;
+  chart += chdsr;
+  document.getElementById('chart').src = chart;
+};
+</script>
+<style type="text/css">
+body {background-color: #333333; color: #cccccc; font-family: helvetica, verdana, arial; margin: 10px 0px 0px 0px;}
+div {margin-right: auto; margin-left: auto; width: 308px;}
+form {margin: 0px; padding: 0px;}
+.colorButton {width: 43px; height: 43px; margin: 4px; -moz-border-radius: 10px; -webkit-border-radius: 10px; border-radius: 10px; border: 1px solid #cccccc; -moz-box-shadow: 0px 0px 3px #000000; -webkit-box-shadow: 0px 0px 3px #000000; box-shadow: 0px 0px 3px #000000;}
+.gradient0 {
+  background:-moz-linear-gradient(top, #ff4444, #bb0000);
+  background:-webkit-gradient(linear, right top, left bottom, from(#ff4444), to(#bb0000));
+}
+.gradient1 {
+  background:-moz-linear-gradient(top, #66cc44, #228800);
+  background:-webkit-gradient(linear, right top, left bottom, from(#66cc44), to(#229900));
+}
+.gradient2 {
+  background:-moz-linear-gradient(top, #4444ff, #0000bb);
+  background:-webkit-gradient(linear, right top, left bottom, from(#4444ff), to(#0000bb));
+}
+.gradient3 {
+  background:-moz-linear-gradient(top, #ff8844, #bb4400);
+  background:-webkit-gradient(linear, right top, left bottom, from(#ff8844), to(#bb4400));
+}
+.gradient4 {
+  background:-moz-linear-gradient(top, #ffff44, #bbbb00);
+  background:-webkit-gradient(linear, right top, left bottom, from(#ffff44), to(#bbbb00));
+}
+.gradient5 {
+  background:-moz-linear-gradient(top, #cc66dd, #882299);
+  background:-webkit-gradient(linear, right top, left bottom, from(#cc66dd), to(#882299));
+}
+.popUp {position: absolute; top: 100px; background-color: #eeeeee; color: #000000; text-align: center; border-radius: 15px; z-index: 2; visibility: hidden;}
+.controlButton {
+  /* General Properties */
+  border:1px solid #858fa6;
+  background:#4a5775;
+  /* CSS3 Styling */
+  background:-moz-linear-gradient(top, #606c88, #3f4c6b);
+  background:-webkit-gradient(linear, left top, left bottom, from(#606c88), to(#3f4c6b));
+  -moz-border-radius:3px;
+  -webkit-border-radius:3px;
+  border-radius:3px;
+  -moz-box-shadow:0px 0px 3px #000;
+  -webkit-box-shadow:0px 0px 3px #000;
+  box-shadow:0px 0px 3px #000;
+  /* Text Styling */
+  color:#cccccc;
+  text-shadow:0px 0px 3px rgba(0, 0, 0, 0.75);
+}
+</style>
+</head>
+<body onload="FI.initFB()">
+<div>
+
+<div id="popUp" class="popUp">
+<span id="msg"></span>
+<form>
+<input type="button" class="controlButton" onclick="FI.reset();" value="Yes" style="width: 100px;"/> <input type="button" class="controlButton" onclick="FI.newGame({{seed}});" value="Try New Game" style="width: 150px;"/><br/>
+<input type="button" class="controlButton" onclick="FI.postChallengeToFB();" value="Post Challenge To Facebook" style="width: 250px;"/>
+</form>
+<br/>
+</div>
+
+<div id="board"></div>
+
+<div id="controls"></div>
+
+<div>
+<span>Moves: <span id="numMoves">0</span></span>
+<span style="display: inline-block; float: right;">Elapsed Time: <span id="elapsedTime">0:00</span></span>
+</div>
+
+<div>
+<form>
+<input type="button" class="controlButton" onclick="FI.currentGame.undo();" value="Undo"/>
+<input type="button" class="controlButton" onclick="FI.currentGame.redo();" value="Redo"/>
+<input type="button" class="controlButton" onclick="FI.newGame({{seed}});" value="New Game" style="float: right;"/>
+<input type="button" class="controlButton" onclick="FI.reset();" value="Reset" style="float: right; margin-right: 5px;"/>
+</form>
+</div>
+
+<img src="" id="chart" style="padding-top: 2px;"/>
+
+<script type="text/javascript">
+FI.init();
+</script>
+<iframe id="updateCompletions" src="" style="display: none;"></iframe>
+<div id="fb-root"></div>
+{% if debug %}
+<script type="text/javascript">
+var ems = eval({{example_move_sequence}});
+function p() {
+  for (var i = 0; i < ems.length; i++) {
+    FI.currentGame.changeColor(ems[i], false);
+  }
+}
+</script>
+<input type="button" onclick="p();" value="P"/>
+{% endif %}
+</div>
+<script src="http://connect.facebook.net/en_US/all.js"></script>
+</body>
+</html>

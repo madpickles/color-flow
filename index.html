@@ -1,0 +1,45 @@
+<html>
+<head>
+<meta name="viewport" content="width=320; initial-scale=1.0; user-scalable=no"/>
+<style type="text/css">
+body {background-color: #333333; color: #cccccc; font-family: helvetica, verdana, arial;}
+div {margin-right: auto; margin-left: auto; width: 316px;}
+input#begin {
+  /* General Properties */
+  border:1px solid #858fa6;
+  background:#4a5775;
+  /* CSS3 Styling */
+  background:-moz-linear-gradient(top, #606c88, #3f4c6b);
+  background:-webkit-gradient(linear, left top, left bottom, from(#606c88), to(#3f4c6b));
+  -moz-border-radius:3px;
+  -webkit-border-radius:3px;
+  border-radius:3px;
+  -moz-box-shadow:0px 0px 3px #000;
+  -webkit-box-shadow:0px 0px 3px #000;
+  box-shadow:0px 0px 3px #000;
+  /* Text Styling */
+  color:#cccccc;
+  text-shadow:0px 0px 3px rgba(0, 0, 0, 0.75);
+}
+</style>
+</head>
+<body>
+<div>
+<h1 style="text-align: center;">
+<span style="color: #dd2222;">C</span>
+<span style="color: #44aa22;">O</span>
+<span style="color: #2222dd;">L</span>
+<span style="color: #dd6622;">O</span>
+<span style="color: #dddd22;">R</span>
+F L O W</h1>
+<p>Fill the board with one color in the fewest moves using the six colored buttons below the board.
+<p>Starting from the top left corner of the board when you change your current color, every adjacent square with the same color also changes.</p>
+<p>You can challenge others to beat your score and also see a histogram of how many moves others have needed to complete the board.</p>
+<div style="margin-right: auto; margin-left: auto; width: 80px;">
+<form>
+<input id="begin" type="button" onclick="location.href = '/PlayGame?ps={{ps}}';" value="Begin!" style="width: 80px;"/>
+</form>
+</div>
+</div>
+</body>
+</html>
