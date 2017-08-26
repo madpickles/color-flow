@@ -1,6 +1,6 @@
 application: color-flow
-version: 2
-runtime: python
+version: 3
+runtime: python27
 api_version: 1
 
 handlers:
