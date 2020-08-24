@@ -42,9 +42,9 @@ def Metric(move_sequence):
   board = move_sequence["board"]
   if board.IsFlooded():
     # If the board is completely flooded, fewer moves are better.
-    return 1 + (1 / float(board.turns))
+    return 1 + (1 / board.turns)
   # More "endpoints" are better earlier since it means more candidate squares.
-  metric = board.GetNumValidEndpoints() / float(board.turns)
+  metric = board.GetNumValidEndpoints() / board.turns
   # More "endpoints" are also better when we've eliminated fewer colors.
   metric *= board.GetNumColorsRemaining()
   # Mmore squares flooded is always better.
@@ -52,8 +52,7 @@ def Metric(move_sequence):
   # Reduce this to a number less than 1.
   metric /= board.num_squares * board.num_squares
   # Add a bonus based on the number of colors remaining, fewer is better.
-  colors_remaining = float(board.GetNumColorsRemaining())
-  metric += 1 - (colors_remaining / Board.NUM_COLORS)
+  metric += 1 - (board.GetNumColorsRemaining() / Board.NUM_COLORS)
   return metric
 
 def SelectNext(board, num_sequences, move_sequences=[{}]):
@@ -83,7 +82,6 @@ def main(argv):
     while not move_sequences[0]["board"].IsFlooded():
       move_sequences = SelectNext(board, num_sequences, move_sequences)
     turns = move_sequences[0]["board"].turns
-    print move_sequences[0]["board"]
     results += ',' + str(turns)
     sys.stdout.write(results + '\n')
     sys.stdout.flush()

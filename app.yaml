@@ -1,6 +1,7 @@
-runtime: python27
-api_version: 1
-threadsafe: false
+runtime: python38
+
+automatic_scaling:
+  max_instances: 1
 
 handlers:
 - url: /stylesheets
@@ -9,4 +10,4 @@ handlers:
   static_dir: images
 
 - url: .*
-  script: main.py
+  script: auto

@@ -1,23 +1,35 @@
-#!/usr/bin/env python
+from flask import Flask
+from flask import render_template
+from flask import request
 
-import cgi
 import flood_it
 import os
 import time
 
 from random import Random
 
-from google.appengine.ext import db
-from google.appengine.api import users
-from google.appengine.ext import webapp
-from google.appengine.ext.webapp import template
-from google.appengine.ext.webapp import util
+from google.cloud import ndb
 
 from board import Board
 
 _PS = 'ps'  # The 'previous seed' HTTP GET parameter name
 _S = 's'    # The 'seed' HTTP GET parameter name
 _M = 'm'    # The 'moves' HTTP GET parameter name
+
+client = ndb.Client()
+
+
+def ndb_wsgi_middleware(wsgi_app):
+    def middleware(environ, start_response):
+        with client.context():
+            return wsgi_app(environ, start_response)
+
+    return middleware
+
+
+app = Flask(__name__)
+app.wsgi_app = ndb_wsgi_middleware(app.wsgi_app)  # Wrap the app in middleware.
+
 
 def _ParseSeed(seed):
   parsed_seed = 0
@@ -30,15 +42,15 @@ def _ParseSeed(seed):
 def _ParseMoves(moves):
   parsed_moves = []
   try:
-    parsed_moves = map(int, moves.split(','))
+    parsed_moves = list(map(int, moves.split(',')))
   except Exception:
     parsed_moves = []
   return parsed_moves
 
 def _GetBoardDescription(seed):
-  key = db.Key.from_path('BoardDescription', str(seed))
+  key = ndb.Key('BoardDescription', str(seed))
   # TODO: error checking
-  return db.get(key)
+  return key.get()
 
 def _CreateAndGetNextBoardDescription(previous_seed):
   seed = _ParseSeed(previous_seed) + 1
@@ -56,7 +68,7 @@ def _CreateAndGetNextBoardDescription(previous_seed):
     turns = move_sequences[0]["board"].turns
 
     # Store the solution before returning the board description
-    board_description = BoardDescription(key_name=str(seed))
+    board_description = BoardDescription(id=str(seed))
     board_description.squares = board.squares
     board_description.completions = str(turns) + ':1'
     board_description.example_move_sequence = move_sequences[0]["moves"]
@@ -83,94 +95,87 @@ def _AddCompletion(num_moves, completions):
 
 def _SerializeCompletions(completions):
   c = []
-  for key, value in sorted(completions.iteritems()):
+  for key, value in sorted(completions.items()):
     c.append(str(key) + ':' + str(value))
   return ','.join(c)
 
-class BoardDescription(db.Model):
-  squares = db.ListProperty(item_type=int)
-  completions = db.StringProperty()
-  example_move_sequence = db.ListProperty(item_type=int)
-  example_move_sequence_length = db.IntegerProperty()
+class BoardDescription(ndb.Model):
+  squares = ndb.IntegerProperty(repeated=True)
+  completions = ndb.StringProperty()
+  example_move_sequence = ndb.IntegerProperty(repeated=True)
+  example_move_sequence_length = ndb.IntegerProperty()
 
-class MainHandler(webapp.RequestHandler):
-  def get(self):
+@app.route('/', methods=['GET'])
+def MainHandler():
   # TODO: pass previous seed through in case link is coming from share so begin button can pass on to PlayGame
 
-#    board_descriptions = db.GqlQuery('SELECT * FROM BoardDescription')
+#    board_descriptions = ndb.GqlQuery('SELECT * FROM BoardDescription')
 #    boards = []
 #    boards.extend(board_descriptions)
-#      board_descriptions = db.GqlQuery('SELECT * FROM BoardDescription WHERE seed = :1', 123456)
+#      board_descriptions = ndb.GqlQuery('SELECT * FROM BoardDescription WHERE seed = :1', 123456)
 #      boards.extend(board_descriptions)
-#      key = db.Key.from_path('BoardDescription', 2)
-#      board_description = db.get(key)
+#      key = ndb.Key('BoardDescription', 2)
+#      board_description = key.get()
 #      boards.append(board_description)
-#      key = db.Key.from_path('BoardDescription', '123456')
-#      board_description = db.get(key)
+#      key = ndb.Key('BoardDescription', '123456')
+#      board_description = key.get()
 #      boards.append(board_description)
-    path = os.path.join(os.path.dirname(__file__), 'index.html')
-    self.response.out.write(template.render(path, {'ps': _ParseSeed(self.request.get(_PS))}))
+    return render_template('index.html', ps=_ParseSeed(request.args.get(_PS)))
 
-
-class PlayGame(webapp.RequestHandler):
-  def get(self):
-    board_description = _CreateAndGetNextBoardDescription(self.request.get(_PS))
+@app.route('/PlayGame', methods=['GET'])
+def PlayGame():
+    board_description = _CreateAndGetNextBoardDescription(request.args.get(_PS))
     min_moves_to_complete = sorted(_DeserializeCompletions(board_description.completions))[0]
-    debug = self.request.get('debug') == '1'
-    template_values = {
-      'seed': board_description.key().name(),
-      'squares': map(int, board_description.squares),
-      'example_move_sequence': map(int, board_description.example_move_sequence),
-      'min_moves_to_complete': min_moves_to_complete,
-      'completions': board_description.completions,
-      'debug': debug
-    }
-    path = os.path.join(os.path.dirname(__file__), 'play_game.html')
-    self.response.out.write(template.render(path, template_values))
+    debug = request.args.get('debug') == '1'
+    return render_template(
+        'play_game.html',
+        seed=board_description.key.string_id(),
+        squares=list(map(int, board_description.squares)),
+        example_move_sequence=list(map(int, board_description.example_move_sequence)),
+        min_moves_to_complete=min_moves_to_complete,
+        completions=board_description.completions,
+        debug=debug)
 
-class GetNextBoard(webapp.RequestHandler):
-  def get(self):
-    board_description = _CreateAndGetNextBoardDescription(self.request.get(_PS))
-    self.response.out.write(board_description.squares)
+@app.route('/GetNextBoard', methods=['GET'])
+def GetNextBoard():
+    board_description = _CreateAndGetNextBoardDescription(request.args.get(_PS))
+    return board_description.squares
 
 # TODO: Error handling/response to user?
-class UpdateCompletions(webapp.RequestHandler):
-  def get(self):
-    seed = _ParseSeed(self.request.get(_S))
-    moves = _ParseMoves(self.request.get(_M))
+@app.route('/UpdateCompletions', methods=['GET'])
+def UpdateCompletions():
+    seed = _ParseSeed(request.args.get(_S))
+    moves = _ParseMoves(request.args.get(_M))
 
     # Make sure someone is attempting to submit a valid completion
     if not (seed and moves):
       return
 
-    self.response.out.write('%s %s' % (seed, moves))
+    out = f'{seed} {moves}\n'
     # Make sure there is a board description for this seed.
     board_description = _GetBoardDescription(seed)
     if not board_description:
-      return
+      return out
 
     # Play the submitted moves
     board = Board(14, seed)
     board.squares = board_description.squares
     board.PlaySequence(moves)
-    self.response.out.write(board.IsFlooded())
+    out += f'{board.IsFlooded()}\n'
 
     # If the board is flooded, update the recorded completions
     if board.IsFlooded():
       completions = _DeserializeCompletions(board_description.completions)
-      self.response.out.write(completions)
+      out += f'{completions}'
       completions = _AddCompletion(len(moves), completions)
       board_description.completions = _SerializeCompletions(completions)
       board_description.put()
 
+    return out
+
 
 def main():
-  application = webapp.WSGIApplication([('/', MainHandler),
-                                        ('/GetNextBoard', GetNextBoard),
                                         ('/PlayGame', PlayGame),
-                                        ('/UpdateCompletions', UpdateCompletions)],
-                                       debug=False)
-  util.run_wsgi_app(application)
 
 if __name__ == '__main__':
   main()

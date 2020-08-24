@@ -66,7 +66,7 @@ class Board:
 
   def _GenerateNeighborList(self, i):
     x = i % self.size
-    y = i / self.size
+    y = i // self.size
     end = self.size - 1
     neighbors = []
     if i > self.size:  # There's a square above this one
@@ -93,7 +93,7 @@ class Board:
 
     # Count the number of times an endpoint is linked to a neighbor.
     endpoint_counts = {}
-    for neighbor, endpoints in neighbor_endpoints.iteritems():
+    for neighbor, endpoints in neighbor_endpoints.items():
       for endpoint in endpoints:
         endpoint_counts[endpoint] = endpoint_counts.get(endpoint, 0) + 1
 
@@ -101,7 +101,7 @@ class Board:
     # will link to all the neighbors
     color_candidates_mask = 0x000000
     valid_endpoints = set()
-    for neighbor, endpoints in neighbor_endpoints.iteritems():
+    for neighbor, endpoints in neighbor_endpoints.items():
       color_candidates_mask |= Board.COLOR_CANDIDATE_MASK[self.squares[neighbor]]
       max_endpoint = 0
       for endpoint in endpoints:
